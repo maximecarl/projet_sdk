@@ -45,11 +45,14 @@
         const CLIENT_SECRET = "38201ad253c323a79d9108f4588bbc62d2e1a5c6";
         const CLIENT_FBID = "1220507708383867";
         const CLIENT_FBSECRET = "387d25fd1c6240e83dbfdb51f8e2697f";
+        const CLIENT_GHID = "593042b861f98bce0c7b";
+        const CLIENT_GHSECRET = "1aa085fb5e31a8cfe1d6c8d4ba8e7c152fc49b76";
         const CLIENT_DISCORDID = "859424765038690304";
         const CLIENT_DISCORDSECRET = "aTYS5dzTzdnnVIQAM3zpILEg7xW2TXi7";
 
         function getUser($params)
         {
+            var_dump($params);
             //Used to get the prefix
             $stateExploaded = explode("_", $params["state"]);
             
@@ -72,6 +75,30 @@
                             . "&" . http_build_query($params));
 
                         break;
+
+                case 'github':
+                    $link = "https://github.com/login/oauth/access_token";
+                    $data = [ 
+                        "client_id" => CLIENT_GHID,
+                        "client_secret" => CLIENT_GHSECRET,
+                        "redirect_uri" => "https://localhost/ghauth-success"
+                    ];
+                    $data = array_merge($data, $params);
+                    $data = http_build_query($data);
+
+                    $contextDiscord = stream_context_create([
+                        'http' => [
+                            'method' => "POST",
+                            'header'=> "Content-type: application/x-www-form-urlencoded\r\n"
+                                . "Content-Length: " . strlen($data) . "\r\n",
+                            'content' => $data
+                        ]
+                    ]);
+                    $result = file_get_contents($link, false, $contextDiscord);
+                    $result = json_encode(sdk_urlDecode($result));
+                    var_dump($result);
+                    break;  
+
                 case 'discord':
                     $link = "https://discord.com/api/oauth2/token";
                     $data = [ 
@@ -102,9 +129,11 @@
             $context = stream_context_create([
                 'http' => [
                     'method' => "GET",
-                    'header' => "Accept: application/json\r\nAuthorization: Bearer " . $token
+                    'header' => "Accept: application/json\r\nAuthorization: Bearer " . $token ,
+                    'user_agent' => 'request'
                 ]
             ]);
+
             //Get the user token
             switch ($stateExploaded[0]) {
                 case 'oauth':
@@ -116,12 +145,25 @@
                 case 'discord':
                     $result = file_get_contents("https://discord.com/api/users/@me", false, $context);
                     break;
+                case 'github':
+                    $result = file_get_contents("https://api.github.com/user", false, $context);
+                    break;
                 default:
                     break;
             }
             $user = json_decode($result, true);
             echo '<h1>Utilisateur</h1>';
             var_dump($user);
+        }
+
+        function sdk_urlDecode($result) {
+            $resultExploded = explode('&', $result);
+            $resultToReturn = [];
+            foreach($resultExploded as $key => $value) {
+                $explodedValue = explode('=', $value);
+                $resultToReturn[$explodedValue[0]] = $explodedValue[1];
+            }
+            return $resultToReturn;
         }
 
         function handleLogin()
@@ -133,6 +175,15 @@
                 'redirect_uri' => 'https://localhost/fbauth-success',
                 'scope' => 'email'
             ];
+
+            $paramsGH = [
+                'client_id' => CLIENT_GHID,
+                'state' => uniqid('github_'),
+                'response_type' => 'code',
+                'redirect_uri' => 'https://localhost/ghauth-success',
+                'scope' => 'user'
+            ];
+
             $paramsDiscord = [
                 'client_id' => CLIENT_DISCORDID,
                 'state' => uniqid('discord_'),
@@ -140,6 +191,7 @@
                 'redirect_uri' => 'https://localhost/discordauth-success',
                 'scope' => 'identify guilds'
             ];
+
         
             echo '<h1>Login</h1>';
             echo "<a href='http://localhost:8081/auth?"
@@ -150,6 +202,7 @@
         
             echo "<a href='https://www.facebook.com/v2.10/dialog/oauth?" . http_build_query($paramsFB, null, '&') . "'>Using Facebook</a>";
             echo "<a href='https://discord.com/api/oauth2/authorize?" . http_build_query($paramsDiscord, null, '&') . "'>Using Discord</a>";
+            echo "<a href='https://github.com/login/oauth/authorize?" . http_build_query($paramsGH, null, '&') . "'>Using github</a>";
         }
 
         function handleSuccess()
@@ -164,6 +217,17 @@
         }
 
         function handleFBSuccess()
+        {
+            ["code" => $code, "state" => $state] = $_GET;
+
+            getUser([
+                "grant_type" => "authorization_code",
+                "state" => $state,
+                "code" => $code
+            ]);
+        }
+
+        function handleGHSuccess()
         {
             ["code" => $code, "state" => $state] = $_GET;
 
@@ -206,6 +270,9 @@
                 break;
             case '/fbauth-success':
                 handleFBSuccess();
+                break;
+            case '/ghauth-success':
+                handleGHSuccess();
                 break;
             case '/discordauth-success':
                 handleDISCORDSuccess();
